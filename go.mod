@@ -1,4 +1,4 @@
-module github.com/kubewarden/go-policy-template
+module github.com/vvlisn/deny-ingress-no-service
 
 go 1.22
 

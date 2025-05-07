@@ -10,7 +10,7 @@ import (
 
 // Settings is the structure that describes the policy settings.
 type Settings struct {
-	DeniedNames []string `json:"denied_names"`
+	EnforceServiceExists bool `json:"enforce_service_exists"`
 }
 
 func NewSettingsFromValidationReq(validationReq *kubewarden_protocol.ValidationRequest) (Settings, error) {
@@ -25,14 +25,8 @@ func (s *Settings) Valid() (bool, error) {
 	return true, nil
 }
 
-func (s *Settings) IsNameDenied(name string) bool {
-	for _, deniedName := range s.DeniedNames {
-		if deniedName == name {
-			return true
-		}
-	}
-
-	return false
+func (s *Settings) IsEnforcementEnabled() bool {
+	return s.EnforceServiceExists
 }
 
 func validateSettings(payload []byte) ([]byte, error) {
