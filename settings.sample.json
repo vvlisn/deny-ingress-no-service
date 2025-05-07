@@ -1,0 +1,5 @@
+{
+  "denied_names": [
+    "tls-example-ingress"
+  ]
+}

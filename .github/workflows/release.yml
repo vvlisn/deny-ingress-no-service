@@ -1,0 +1,27 @@
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+
+name: Release policy
+
+jobs:
+  test:
+    name: run tests and linters
+    uses: kubewarden/github-actions/.github/workflows/reusable-test-policy-go.yml@3455ea9c2072dcb59869705247d7c4ab7488f576 # v4.4.6
+
+  release:
+    needs: test
+    permissions:
+      # Required to create GH releases
+      contents: write
+      # Required to push to GHCR
+      packages: write
+      # Required by cosign keyless signing
+      id-token: write
+
+    uses: kubewarden/github-actions/.github/workflows/reusable-release-policy-go.yml@3455ea9c2072dcb59869705247d7c4ab7488f576 # v4.4.6
+    with:
+      oci-target: ghcr.io/${{ github.repository_owner }}/policies/policy-name #FIXME
