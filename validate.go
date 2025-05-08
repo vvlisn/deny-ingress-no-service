@@ -14,8 +14,11 @@ import (
 
 const httpBadRequestStatusCode = 400
 
+// 全局 host 实例，用于 capabilities 调用
+var host = capabilities.NewHost()
+
 func validate(payload []byte) ([]byte, error) {
-	// 从传入的 payload 创建 ValidationRequest 实例。
+	// 从传入的 payload 创建 ValidationRequest 实例
 	validationRequest := kubewarden_protocol.ValidationRequest{}
 	err := json.Unmarshal(payload, &validationRequest)
 	if err != nil {
@@ -24,7 +27,7 @@ func validate(payload []byte) ([]byte, error) {
 			kubewarden.Code(httpBadRequestStatusCode))
 	}
 
-	// 从 ValidationRequest 对象创建 Settings 实例。
+	// 从 ValidationRequest 对象创建 Settings 实例
 	settings, err := NewSettingsFromValidationReq(&validationRequest)
 	if err != nil {
 		return kubewarden.RejectRequest(
@@ -32,7 +35,7 @@ func validate(payload []byte) ([]byte, error) {
 			kubewarden.Code(httpBadRequestStatusCode))
 	}
 
-	// 3. 反序列化出 Ingress 对象
+	// 反序列化出 Ingress 对象
 	ingress, err := getIngress(validationRequest.Request.Object)
 	if err != nil {
 		return kubewarden.RejectRequest(
@@ -45,15 +48,19 @@ func validate(payload []byte) ([]byte, error) {
 		e.String("namespace", ingress.Metadata.Namespace)
 	})
 
-	// 4. 如果用户关闭了 enforce 或在排除列表中（此处假设已有相应方法），直接通过
+	// 如果 IsEnforcementEnabled 返回 false，说明不需要检查，直接通过
 	if !settings.IsEnforcementEnabled() {
 		return kubewarden.AcceptRequest()
 	}
 
-	// 5. 提取所有后端 Service 名称
+	// 提取所有后端 Service 名称
 	svcNames := extractServiceNames(ingress)
+	if len(svcNames) == 0 {
+		// 没有服务需要验证，直接通过
+		return kubewarden.AcceptRequest()
+	}
 
-	// 6. 逐个检查 Service 是否存在
+	// 逐个检查 Service 是否存在
 	for _, svc := range svcNames {
 		ok, err := serviceExists(&validationRequest, svc)
 		if err != nil {
@@ -75,8 +82,10 @@ func validate(payload []byte) ([]byte, error) {
 }
 
 // getIngress 从 RAW JSON 中解析出 Ingress 对象
-// getIngress 将 json.RawMessage（即 []byte）直接反序列化为 Ingress
 func getIngress(rawJSON json.RawMessage) (*networkingv1.Ingress, error) {
+	if len(rawJSON) == 0 {
+		return nil, fmt.Errorf("empty ingress object")
+	}
 	ing := &networkingv1.Ingress{}
 	if err := json.Unmarshal(rawJSON, ing); err != nil {
 		return nil, err
@@ -86,8 +95,17 @@ func getIngress(rawJSON json.RawMessage) (*networkingv1.Ingress, error) {
 
 // extractServiceNames 从 Ingress Spec 中收集所有 backend.service.name 并去重
 func extractServiceNames(ing *networkingv1.Ingress) []string {
-	names := make([]string, 0)
-	seen := map[string]struct{}{}
+	if ing == nil || ing.Spec == nil {
+		return nil
+	}
+
+	// 估算初始容量：defaultBackend(1) + rules * paths(预估2个path)
+	initialCap := 1
+	if ing.Spec.Rules != nil {
+		initialCap += len(ing.Spec.Rules) * 2
+	}
+	names := make([]string, 0, initialCap)
+	seen := make(map[string]struct{}, initialCap)
 
 	spec := ing.Spec
 
@@ -95,10 +113,8 @@ func extractServiceNames(ing *networkingv1.Ingress) []string {
 	if spec.DefaultBackend != nil && spec.DefaultBackend.Service != nil {
 		if svcPtr := spec.DefaultBackend.Service.Name; svcPtr != nil && *svcPtr != "" {
 			svc := *svcPtr
-			if _, exists := seen[svc]; !exists {
-				seen[svc] = struct{}{}
-				names = append(names, svc)
-			}
+			seen[svc] = struct{}{}
+			names = append(names, svc)
 		}
 	}
 
@@ -124,14 +140,16 @@ func extractServiceNames(ing *networkingv1.Ingress) []string {
 }
 
 // serviceExists 调用 Kubewarden Capabilities 检查 Service 是否存在
-func serviceExists(
-	validationReq *kubewarden_protocol.ValidationRequest,
-	serviceName string,
-) (bool, error) {
-	// 1. Create a Host to talk to the policy server :contentReference[oaicite:2]{index=2}
-	host := capabilities.NewHost()
+func serviceExists(validationReq *kubewarden_protocol.ValidationRequest, serviceName string) (bool, error) {
+	// 参数验证
+	if validationReq == nil {
+		return false, fmt.Errorf("validation request cannot be nil")
+	}
+	if serviceName == "" {
+		return false, fmt.Errorf("service name cannot be empty")
+	}
 
-	// 2. Build the get_resource payload as specified by the host-capabilities spec :contentReference[oaicite:3]{index=3}
+	// 构造请求
 	req := map[string]string{
 		"api_version": "v1",
 		"kind":        "Service",
@@ -143,27 +161,19 @@ func serviceExists(
 		return false, fmt.Errorf("failed to marshal get_resource request: %w", err)
 	}
 
-	// 3. Invoke the host capability: binding="kubewarden", namespace="kubernetes", operation="get_resource"
+	// 调用 host capabilities
 	respBytes, err := host.Client.HostCall(
 		"kubewarden",
 		"kubernetes",
 		"get_resource",
 		reqBytes,
-	) // WapcClient.HostCall(binding, namespace, operation, payload) :contentReference[oaicite:4]{index=4}
+	)
 	if err != nil {
-		// 4a. NotFound error       s are normal “missing” cases
 		if strings.Contains(err.Error(), "not found") {
 			return false, nil
 		}
-		// 4b. Any other error is unexpected
 		return false, fmt.Errorf("host call failed: %w", err)
 	}
 
-	// 5. If we got a response payload, the resource exists
-	//    (we could unmarshal respBytes to inspect fields if needed)
-	if len(respBytes) > 0 {
-		return true, nil
-	}
-	// Edge case: empty payload—treat as missing
-	return false, nil
+	return len(respBytes) > 0, nil
 }

@@ -16,3 +16,7 @@
 # vendor/
 
 bin/
+
+# ide
+.idea
+.vscode

@@ -1,5 +1,3 @@
 {
-  "denied_names": [
-    "tls-example-ingress"
-  ]
+  "enforce_service_exists": true
 }

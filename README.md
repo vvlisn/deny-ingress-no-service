@@ -1,94 +1,93 @@
 [![Stable](https://img.shields.io/badge/status-stable-brightgreen?style=for-the-badge)](https://github.com/kubewarden/community/blob/main/REPOSITORIES.md#stable)
 
-# go-policy-template
+# deny-ingress-no-service
 
-This is a template repository you can use to scaffold a Kubewarden policy written using Go language.
-
-Don't forget to check Kubewarden's
-[official documentation](https://docs.kubewarden.io)
-for more information about writing policies.
+This policy helps ensure that Kubernetes Ingress resources only reference existing Services.
 
 ## Introduction
 
-This repository has a working policy written in Go.
+This repository contains a Kubewarden policy written in Go. The policy validates Kubernetes Ingress resources by checking if the referenced backend Services exist in the specified namespace.
 
-The policy looks at the `name` of a Kubernetes Pod and rejects the request if the name is on a "deny list".
+The policy is configurable via runtime settings. By default, the policy will check for Service existence, but this can be disabled if needed.
 
-The "deny list" is configurable by the user via the runtime settings of the policy.
-You express the configuration of the policy using this structure:
+You can configure the policy using this structure:
 
 ```json
 {
-  "denied_names": [ "badname1", "badname2" ]
+  "enforce_service_exists": true
 }
 ```
 
+The `enforce_service_exists` setting controls whether the policy should validate Service existence:
+- `true` (default): Reject Ingress if any referenced Service does not exist
+- `false`: Skip Service existence validation, all Ingress resources will be accepted
+
 ## Code organization
 
-The code that takes care of parsing the settings is in the `settings.go` file.
-Actual validation code is in the `validate.go` file.
-The `main.go` only has the code to registers the entry points of the policy.
+The code is organized as follows:
+- `settings.go`: Handles policy settings and their validation
+- `validate.go`: Contains the main validation logic that checks Service existence
+- `main.go`: Registers policy entry points with the Kubewarden runtime
 
 ## Implementation details
 
 > **DISCLAIMER:** WebAssembly is a constantly evolving area.
-> This document describes the status of the Go ecosystem as of July 2023.
+> This document describes the status of the Go ecosystem as of 2024.
 
-Currently, the official Go compiler can't produce WebAssembly binaries that can run **outside** the browser.
-Because of that, you can only build Kubewarden Go policies with the [TinyGo](https://tinygo.org/) compiler.
+This policy utilizes several key concepts in its implementation:
 
-Kubewarden policies need to process JSON data.
-For example, the policy settings and the actual request received by Kubernetes.
-TinyGo doesn't yet support the full Go Standard Library,
-it has limited support of Go reflection.
-Because of that, it's impossible to import the official Kubernetes Go library from upstream (e.g.: `k8s.io/api/core/v1`).
-Importing these official Kubernetes types results in a compilation failure.
+1. Service Validation
+   - Uses Kubewarden's host capabilities to check if referenced Services exist
+   - Handles all Service backend references in Ingress:
+     - Default backend
+     - Path-based rules
+   - Deduplicates Service references for efficient validation
 
-However, it's still possible to write a Kubewarden policy by using certain third party libraries.
+2. Configuration Management
+   - Default configuration enforces Service existence checking
+   - Settings can be overridden via policy configuration
+   - Validates settings at policy load time
 
-> **Warning:**
-> Using an older version of TinyGo results in runtime errors due to the limited support for Go reflection.
+3. Technical Considerations
+   - Built with TinyGo for WebAssembly compatibility
+   - Uses Kubewarden's TinyGo-compatible Kubernetes types
+   - Implements Kubewarden policy interface:
+     - validate: Main entry point for Ingress validation
+     - validate_settings: Entry point for settings validation
 
-This list of libraries can be useful when writing a Kubewarden policy:
-
-- [Kubernetes Go types](https://github.com/kubewarden/k8s-objects) for TinyGo:
-the official Kubernetes Go Types can't be used with TinyGo.
-This module provides all the Kubernetes Types in a TinyGo-friendly way.
-- Parsing JSON: Queries against JSON documents can be written using the
-[gjson](https://github.com/tidwall/gjson) library.
-The library features a powerful query language that allows quick navigation of JSON documents and data retrieval.
-- Generic `set` implementation: Using [Set](https://en.wikipedia.org/wiki/Set_(abstract_data_type)) data types can reduce the amount of code in a policy,
-see the `union`, `intersection`, `difference`, and other operations provided by a Set implementation.
-The [mapset](https://github.com/deckarep/golang-set) can be used when writing policies.
-
-Last, but not least, this policy takes advantage of helper functions provided by
-[Kubewarden's Go SDK](https://github.com/kubewarden/policy-sdk-go).
+See the [Kubewarden Policy SDK](https://github.com/kubewarden/policy-sdk-go) documentation for more details on policy development.
 
 ## Testing
 
-This policy comes with unit tests implemented using the Go testing
-framework.
+The policy includes comprehensive unit tests that verify:
 
-As usual, the tests are defined in `_test.go` files.
-As these tests aren't part of the final WebAssembly binary, the official Go compiler can be used to run them.
+1. Settings validation:
+   - Default settings (enforce_service_exists = true)
+   - Explicit settings override
+   - Settings validation
 
-The unit tests can be run via a simple command:
+2. Ingress validation:
+   - Accept when validation is disabled
+   - Accept when all Services exist
+   - Reject when Service does not exist
+   - Proper handling of Ingress with multiple backend Services
+
+The unit tests can be run via:
 
 ```console
 make test
 ```
 
-It's also important to test the final result of the TinyGo compilation:
-the actual WebAssembly module.
+The policy also includes end-to-end tests that verify the WebAssembly module behavior using the `kwctl` CLI. These tests validate:
 
-This is done with a second set of end-to-end tests.
-These tests use the `kwctl` cli provided by the Kubewarden project to load and execute the policy.
+1. Default behavior (enforce_service_exists = true):
+   - Reject Ingress with non-existent Services
+   - Accept Ingress with existing Services
 
-The e2e tests are implemented using
-[bats](https://github.com/bats-core/bats-core),
-the Bash Automated Testing System.
+2. Disabled validation (enforce_service_exists = false):
+   - Accept all Ingress resources regardless of Service existence
 
-The end-to-end tests are defined in the `e2e.bats` file and can be run using:
+The e2e tests are implemented in `e2e.bats` and can be run via:
 
 ```console
 make e2e-tests
