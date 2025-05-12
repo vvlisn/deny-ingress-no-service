@@ -11,9 +11,19 @@ import (
 const defaultEnforceServiceExists = true
 
 // Settings 定义了策略中的所有可配置项
+const defaultDisableCache = false
+
+// Settings 定义了策略中的所有可配置项
 type Settings struct {
 	// 是否强制校验 Ingress 引用的 Service 是否存在
 	EnforceServiceExists bool `json:"enforce_service_exists"`
+	// 是否禁用 Host Capabilities 的缓存
+	DisableCache bool `json:"disable_cache"`
+}
+
+// IncomingSettings matches the structure of the settings provided by kwctl run
+type IncomingSettings struct {
+	Signatures []Settings `json:"signatures"`
 }
 
 // NewSettingsFromValidationReq 从 ValidationRequest 中提取设置，
@@ -22,11 +32,23 @@ func NewSettingsFromValidationReq(validationReq *kubewarden_protocol.ValidationR
 	// 1. 用默认值初始化
 	settings := Settings{
 		EnforceServiceExists: defaultEnforceServiceExists,
+		DisableCache:         defaultDisableCache,
 	}
+
 	// 2. 如果用户在 CRD 中提供了 settings，就合并
 	if len(validationReq.Settings) > 0 {
+		// Attempt to unmarshal into the flat Settings structure first (backward compatibility)
 		if err := json.Unmarshal(validationReq.Settings, &settings); err != nil {
-			return Settings{}, fmt.Errorf("cannot parse settings JSON: %w", err)
+			// If that fails, try unmarshalling into the nested IncomingSettings structure
+			var incomingSettings IncomingSettings
+			if err := json.Unmarshal(validationReq.Settings, &incomingSettings); err != nil {
+				return Settings{}, fmt.Errorf("cannot parse settings JSON: %w", err)
+			}
+			// Extract settings from the nested structure
+			if len(incomingSettings.Signatures) > 0 {
+				settings.EnforceServiceExists = incomingSettings.Signatures[0].EnforceServiceExists
+				settings.DisableCache = incomingSettings.Signatures[0].DisableCache
+			}
 		}
 	}
 	return settings, nil

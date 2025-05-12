@@ -62,7 +62,7 @@ func validate(payload []byte) ([]byte, error) {
 
 	// 逐个检查 Service 是否存在
 	for _, svc := range svcNames {
-		ok, err := serviceExists(&validationRequest, svc)
+		ok, err := serviceExists(ingress, settings, svc)
 		if err != nil {
 			return kubewarden.RejectRequest(
 				kubewarden.Message(fmt.Sprintf("Error checking Service '%s': %s", svc, err)),
@@ -140,22 +140,32 @@ func extractServiceNames(ing *networkingv1.Ingress) []string {
 }
 
 // serviceExists 调用 Kubewarden Capabilities 检查 Service 是否存在
-func serviceExists(validationReq *kubewarden_protocol.ValidationRequest, serviceName string) (bool, error) {
+func serviceExists(ingress *networkingv1.Ingress, settings Settings, serviceName string) (bool, error) {
 	// 参数验证
-	if validationReq == nil {
-		return false, fmt.Errorf("validation request cannot be nil")
+	if ingress == nil || ingress.Metadata == nil {
+		return false, fmt.Errorf("ingress object or metadata cannot be nil")
 	}
 	if serviceName == "" {
 		return false, fmt.Errorf("service name cannot be empty")
 	}
 
 	// 构造请求
-	req := map[string]string{
-		"api_version": "v1",
-		"kind":        "Service",
-		"namespace":   validationReq.Request.Namespace,
-		"name":        serviceName,
+	req := map[string]interface{}{
+		"api_version":   "v1",
+		"kind":          "Service",
+		"namespace":     ingress.Metadata.Namespace,
+		"name":          serviceName,
+		"disable_cache": settings.DisableCache,
 	}
+
+	logger.DebugWithFields("get_resource host call request", func(e onelog.Entry) {
+		e.String("api_version", req["api_version"].(string))
+		e.String("kind", req["kind"].(string))
+		e.String("namespace", req["namespace"].(string))
+		e.String("name", req["name"].(string))
+		e.Bool("disable_cache", req["disable_cache"].(bool))
+	})
+
 	reqBytes, err := json.Marshal(req)
 	if err != nil {
 		return false, fmt.Errorf("failed to marshal get_resource request: %w", err)

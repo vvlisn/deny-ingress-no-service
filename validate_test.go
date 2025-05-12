@@ -17,13 +17,13 @@ type mockWapcClient struct{}
 func (c *mockWapcClient) HostCall(binding, namespace, operation string, payload []byte) ([]byte, error) {
 	if binding == "kubewarden" && namespace == "kubernetes" && operation == "get_resource" {
 		// 解析请求
-		req := map[string]string{}
+		req := map[string]interface{}{}
 		if err := json.Unmarshal(payload, &req); err != nil {
 			return nil, err
 		}
 
 		// 根据服务名返回不同响应
-		if req["name"] == "my-service" {
+		if name, ok := req["name"].(string); ok && name == "my-service" {
 			// 返回一个模拟的 service 对象
 			return []byte(`{"kind":"Service","apiVersion":"v1"}`), nil
 		}

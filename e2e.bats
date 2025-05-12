@@ -1,33 +1,51 @@
 #!/usr/bin/env bats
 
-@test "reject because name is on deny list" {
-  run kwctl run annotated-policy.wasm -r test_data/pod.json --settings-json '{"denied_names": ["foo", "test-pod"]}'
+#git clone https://github.com/bats-core/bats-support.git test_helper/bats-support
+#git clone https://github.com/bats-core/bats-assert.git test_helper/bats-assert
 
-  # this prints the output when one the checks below fails
+load 'test_helper/bats-support/load'
+load 'test_helper/bats-assert/load'
+
+@test "allow existing service (validation enabled by default)" {
+  run env RUST_BACKTRACE=1 kwctl run --allow-context-aware --replay-host-capabilities-interactions test_data/replay-session-with-service.yml \
+        -r "test_data/ingress-with-service.json" \
+        --settings-json '{"enforce_service_exists": true}' \
+        "annotated-policy.wasm"
+
   echo "output = ${output}"
-
-  # request rejected
-  [ "$status" -eq 0 ]
-  [ $(expr "$output" : '.*allowed.*false') -ne 0 ]
-  [ $(expr "$output" : ".*The 'test-pod' name is on the deny list.*") -ne 0 ]
+  assert_success
+  assert_output --partial '"allowed":true'
 }
 
-@test "accept because name is not on the deny list" {
-  run kwctl run annotated-policy.wasm -r test_data/pod.json --settings-json '{"denied_names": ["foo"]}'
-  # this prints the output when one the checks below fails
-  echo "output = ${output}"
+@test "reject missing service (validation enabled by default)" {
+  run env RUST_BACKTRACE=1 kwctl run --allow-context-aware --replay-host-capabilities-interactions test_data/replay-session-no-service.yml \
+        -r "test_data/ingress-no-service.json" \
+        --settings-json '{"enforce_service_exists": true}' \
+        "annotated-policy.wasm"
 
-  # request accepted
-  [ "$status" -eq 0 ]
-  [ $(expr "$output" : '.*allowed.*true') -ne 0 ]
+  echo "output = ${output}"
+  assert_success
+  assert_output --partial '"allowed":false'
+  assert_output --partial "Service 'non-existent-service': host call failed"
 }
 
-@test "accept because the deny list is empty" {
-  run kwctl run annotated-policy.wasm -r test_data/pod.json
-  # this prints the output when one the checks below fails
-  echo "output = ${output}"
+@test "allow when validation disabled (skip service check)" {
+  run env RUST_BACKTRACE=1 kwctl run --allow-context-aware --replay-host-capabilities-interactions test_data/replay-session-with-service.yml \
+        -r "test_data/ingress-no-service.json" \
+        --settings-json '{"enforce_service_exists": false}' \
+        "annotated-policy.wasm"
 
-  # request accepted
-  [ "$status" -eq 0 ]
-  [ $(expr "$output" : '.*allowed.*true') -ne 0 ]
+  echo "output = ${output}"
+  assert_success
+  assert_output --partial '"allowed":true'
+}
+
+@test "allow empty ingress (no service reference)" {
+  run env RUST_BACKTRACE=1 kwctl run --allow-context-aware --replay-host-capabilities-interactions test_data/replay-session-with-service.yml.yml \
+        -r "test_data/ingress-empty.json" \
+        "annotated-policy.wasm"
+
+  echo "output = ${output}"
+  assert_success
+  assert_output --partial '"allowed":true'
 }

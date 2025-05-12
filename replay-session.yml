@@ -1,0 +1,11 @@
+- type: Exchange
+  request: |
+    !KubernetesGetResource
+    api_version: v1
+    kind: Service
+    name: my-service
+    namespace: default
+    disable_cache: false
+  response:
+    type: Success
+    payload: '{"apiVersion":"v1","kind":"Service","metadata":{"annotations":{"kubectl.kubernetes.io/last-applied-configuration":"{\"apiVersion\":\"v1\",\"kind\":\"Service\",\"metadata\":{\"annotations\":{},\"name\":\"my-service\",\"namespace\":\"default\"},\"spec\":{\"ports\":[{\"port\":80,\"protocol\":\"TCP\",\"targetPort\":9376}],\"selector\":{\"app\":\"my-app\"}}}\n"},"creationTimestamp":"2025-05-12T07:40:18Z","managedFields":[{"apiVersion":"v1","fieldsType":"FieldsV1","fieldsV1":{"f:metadata":{"f:annotations":{".":{},"f:kubectl.kubernetes.io/last-applied-configuration":{}}},"f:spec":{"f:internalTrafficPolicy":{},"f:ports":{".":{},"k:{\"port\":80,\"protocol\":\"TCP\"}":{".":{},"f:port":{},"f:protocol":{},"f:targetPort":{}}},"f:selector":{},"f:sessionAffinity":{},"f:type":{}}},"manager":"kubectl-client-side-apply","operation":"Update","time":"2025-05-12T07:40:18Z"}],"name":"my-service","namespace":"default","resourceVersion":"4022011","uid":"2ddae820-94e3-4f16-bbeb-c258eab0d32b"},"spec":{"clusterIP":"10.96.182.195","clusterIPs":["10.96.182.195"],"internalTrafficPolicy":"Cluster","ipFamilies":["IPv4"],"ipFamilyPolicy":"SingleStack","ports":[{"port":80,"protocol":"TCP","targetPort":9376}],"selector":{"app":"my-app"},"sessionAffinity":"None","type":"ClusterIP"},"status":{"loadBalancer":{}}}'

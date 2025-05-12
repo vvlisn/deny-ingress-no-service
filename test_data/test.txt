@@ -1,0 +1,44 @@
+
+
+kwctl run \
+  --allow-context-aware \
+  -r test_data/ingress-with-service.json \
+  --settings-json '{
+    "signatures": [
+      {
+        "enforce_service_exists": "true",
+        "disable_cache": "true"
+      }
+    ]
+  }' \
+  --record-host-capabilities-interactions replay-session.yml \
+  annotated-policy.wasm
+
+
+
+kwctl run \
+  --allow-context-aware \
+  -r test_data/ingress-no-service.json \
+  --settings-json '{
+    "signatures": [
+      {
+        "enforce_service_exists": "true"
+      }
+    ]
+  }' \
+  --record-host-capabilities-interactions replay-session.yml \
+  annotated-policy.wasm
+
+
+kwctl run \
+  --allow-context-aware \
+  -r test_data/ingress-with-service.json \
+  --settings-json '{
+    "signatures": [
+      {
+        "enforce_service_exists": "true"
+      }
+    ]
+  }' \
+  --replay-host-capabilities-interactions replay-session.yml \
+  annotated-policy.wasm

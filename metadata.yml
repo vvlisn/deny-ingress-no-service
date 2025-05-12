@@ -1,16 +1,26 @@
 rules:
-- apiGroups: [""]
-  apiVersions: ["v1"]
-  resources: ["ingress"]
-  operations: ["CREATE"]
+  - apiGroups:
+      - networking.k8s.io
+    apiVersions:
+      - v1
+    resources:
+      - ingresses
+    operations:
+      - CREATE
+      - UPDATE
 mutating: false
-contextAware: false
+contextAware: true
+contextAwareResources:
+  - apiVersion: v1
+    kind: Namespace
+  - apiVersion: v1
+    kind: Service
 executionMode: kubewarden-wapc
 # Consider the policy for the background audit scans. Default is true. Note the
 # intrinsic limitations of the background audit feature on docs.kubewarden.io;
 # If your policy hits any limitations, set to false for the audit feature to
 # skip this policy and not generate false positives.
-backgroundAudit: true
+backgroundAudit: false
 annotations:
   # artifacthub specific:
   io.artifacthub.displayName: Deny Ingress No Service
