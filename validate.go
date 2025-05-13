@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -14,7 +15,10 @@ import (
 
 const httpBadRequestStatusCode = 400
 
-// 全局 host 实例，用于 capabilities 调用
+// 每个 Rule 预计的平均 Path 数。
+const estimatedPathsPerRule = 2
+
+// 全局 host 实例，用于 capabilities 调用。
 var host = capabilities.NewHost()
 
 func validate(payload []byte) ([]byte, error) {
@@ -62,13 +66,13 @@ func validate(payload []byte) ([]byte, error) {
 
 	// 逐个检查 Service 是否存在
 	for _, svc := range svcNames {
-		ok, err := serviceExists(ingress, settings, svc)
-		if err != nil {
+		serviceOK, serviceErr := serviceExists(ingress, settings, svc)
+		if serviceErr != nil {
 			return kubewarden.RejectRequest(
-				kubewarden.Message(fmt.Sprintf("Error checking Service '%s': %s", svc, err)),
+				kubewarden.Message(fmt.Sprintf("Error checking Service '%s': %s", svc, serviceErr)),
 				kubewarden.NoCode)
 		}
-		if !ok {
+		if !serviceOK {
 			return kubewarden.RejectRequest(
 				kubewarden.Message(fmt.Sprintf(
 					"Service '%s' does not exist in namespace '%s'",
@@ -81,10 +85,10 @@ func validate(payload []byte) ([]byte, error) {
 	return kubewarden.AcceptRequest()
 }
 
-// getIngress 从 RAW JSON 中解析出 Ingress 对象
+// getIngress 从 RAW JSON 中解析出 Ingress 对象。
 func getIngress(rawJSON json.RawMessage) (*networkingv1.Ingress, error) {
 	if len(rawJSON) == 0 {
-		return nil, fmt.Errorf("empty ingress object")
+		return nil, errors.New("empty ingress object")
 	}
 	ing := &networkingv1.Ingress{}
 	if err := json.Unmarshal(rawJSON, ing); err != nil {
@@ -93,7 +97,7 @@ func getIngress(rawJSON json.RawMessage) (*networkingv1.Ingress, error) {
 	return ing, nil
 }
 
-// extractServiceNames 从 Ingress Spec 中收集所有 backend.service.name 并去重
+// extractServiceNames 从 Ingress Spec 中收集所有 backend.service.name 并去重。
 func extractServiceNames(ing *networkingv1.Ingress) []string {
 	if ing == nil || ing.Spec == nil {
 		return nil
@@ -102,7 +106,7 @@ func extractServiceNames(ing *networkingv1.Ingress) []string {
 	// 估算初始容量：defaultBackend(1) + rules * paths(预估2个path)
 	initialCap := 1
 	if ing.Spec.Rules != nil {
-		initialCap += len(ing.Spec.Rules) * 2
+		initialCap += len(ing.Spec.Rules) * estimatedPathsPerRule
 	}
 	names := make([]string, 0, initialCap)
 	seen := make(map[string]struct{}, initialCap)
@@ -139,14 +143,14 @@ func extractServiceNames(ing *networkingv1.Ingress) []string {
 	return names
 }
 
-// serviceExists 调用 Kubewarden Capabilities 检查 Service 是否存在
+// serviceExists 调用 Kubewarden Capabilities 检查 Service 是否存在。
 func serviceExists(ingress *networkingv1.Ingress, settings Settings, serviceName string) (bool, error) {
 	// 参数验证
 	if ingress == nil || ingress.Metadata == nil {
-		return false, fmt.Errorf("ingress object or metadata cannot be nil")
+		return false, errors.New("ingress object or metadata cannot be nil")
 	}
 	if serviceName == "" {
-		return false, fmt.Errorf("service name cannot be empty")
+		return false, errors.New("service name cannot be empty")
 	}
 
 	// 构造请求

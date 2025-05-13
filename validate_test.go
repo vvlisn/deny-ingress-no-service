@@ -2,7 +2,7 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
+	"errors"
 	"testing"
 
 	networkingv1 "github.com/kubewarden/k8s-objects/api/networking/v1"
@@ -11,7 +11,7 @@ import (
 	kubewarden_testing "github.com/kubewarden/policy-sdk-go/testing"
 )
 
-// 模拟 host capabilities 调用的响应
+// 模拟 host capabilities 调用的响应。
 type mockWapcClient struct{}
 
 func (c *mockWapcClient) HostCall(binding, namespace, operation string, payload []byte) ([]byte, error) {
@@ -28,9 +28,9 @@ func (c *mockWapcClient) HostCall(binding, namespace, operation string, payload 
 			return []byte(`{"kind":"Service","apiVersion":"v1"}`), nil
 		}
 		// 对于不存在的服务返回错误
-		return nil, fmt.Errorf("not found")
+		return nil, errors.New("not found")
 	}
-	return nil, fmt.Errorf("unexpected host call")
+	return nil, errors.New("unexpected host call")
 }
 
 func setupTestEnv() {
@@ -368,7 +368,7 @@ func TestComplexIngressRules(t *testing.T) {
 	}
 }
 
-// strPtr 返回字符串指针的辅助函数
+// strPtr 返回字符串指针的辅助函数。
 func strPtr(s string) *string {
 	return &s
 }
