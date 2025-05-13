@@ -15,10 +15,7 @@ import (
 
 const httpBadRequestStatusCode = 400
 
-// 每个 Rule 预计的平均 Path 数。
-const estimatedPathsPerRule = 2
-
-// 全局 host 实例，用于 capabilities 调用。
+//nolint:gochecknoglobals // host 是 Kubewarden SDK 推荐的全局变量使用方式
 var host = capabilities.NewHost()
 
 func validate(payload []byte) ([]byte, error) {
@@ -52,7 +49,7 @@ func validate(payload []byte) ([]byte, error) {
 		e.String("namespace", ingress.Metadata.Namespace)
 	})
 
-	// 如果 IsEnforcementEnabled 返回 false，说明不需要检查，直接通过
+	// 如果 IsEnforcementEnabled 返回 false，说明不需要检查，直接通过.
 	if !settings.IsEnforcementEnabled() {
 		return kubewarden.AcceptRequest()
 	}
@@ -103,44 +100,43 @@ func extractServiceNames(ing *networkingv1.Ingress) []string {
 		return nil
 	}
 
-	// 估算初始容量：defaultBackend(1) + rules * paths(预估2个path)
-	initialCap := 1
-	if ing.Spec.Rules != nil {
-		initialCap += len(ing.Spec.Rules) * estimatedPathsPerRule
-	}
-	names := make([]string, 0, initialCap)
-	seen := make(map[string]struct{}, initialCap)
+	// 使用 map 进行服务名去重
+	seen := make(map[string]struct{})
 
-	spec := ing.Spec
-
-	// defaultBackend
-	if spec.DefaultBackend != nil && spec.DefaultBackend.Service != nil {
-		if svcPtr := spec.DefaultBackend.Service.Name; svcPtr != nil && *svcPtr != "" {
-			svc := *svcPtr
-			seen[svc] = struct{}{}
-			names = append(names, svc)
-		}
+	// 处理默认后端
+	if svcName := extractServiceNameFromBackend(ing.Spec.DefaultBackend); svcName != "" {
+		seen[svcName] = struct{}{}
 	}
 
-	// rules[].http.paths[].backend.service
-	for _, rule := range spec.Rules {
+	// 处理所有路径规则
+	for _, rule := range ing.Spec.Rules {
 		if rule.HTTP == nil {
 			continue
 		}
 		for _, path := range rule.HTTP.Paths {
-			if path.Backend.Service != nil {
-				if svcPtr := path.Backend.Service.Name; svcPtr != nil && *svcPtr != "" {
-					svc := *svcPtr
-					if _, exists := seen[svc]; !exists {
-						seen[svc] = struct{}{}
-						names = append(names, svc)
-					}
-				}
+			if svcName := extractServiceNameFromBackend(path.Backend); svcName != "" {
+				seen[svcName] = struct{}{}
 			}
 		}
 	}
 
+	// 将去重后的服务名转换为切片
+	names := make([]string, 0, len(seen))
+	for name := range seen {
+		names = append(names, name)
+	}
 	return names
+}
+
+// extractServiceNameFromBackend 从后端配置中提取服务名称。
+func extractServiceNameFromBackend(backend *networkingv1.IngressBackend) string {
+	if backend == nil || backend.Service == nil || backend.Service.Name == nil {
+		return ""
+	}
+	if *backend.Service.Name == "" {
+		return ""
+	}
+	return *backend.Service.Name
 }
 
 // serviceExists 调用 Kubewarden Capabilities 检查 Service 是否存在。
@@ -162,7 +158,8 @@ func serviceExists(ingress *networkingv1.Ingress, settings Settings, serviceName
 		"disable_cache": settings.DisableCache,
 	}
 
-	logger.DebugWithFields("get_resource host call request", func(e onelog.Entry) {
+	//nolint:errcheck // Entry methods return self for chaining
+	logger.DebugWithFields("checking service existence", func(e onelog.Entry) {
 		e.String("api_version", req["api_version"].(string))
 		e.String("kind", req["kind"].(string))
 		e.String("namespace", req["namespace"].(string))

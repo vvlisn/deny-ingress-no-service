@@ -1,3 +1,5 @@
+kwctl annotate --metadata-path metadata.yml policy.wasm -o annotated-policy.wasm
+
 
 
 kwctl run \

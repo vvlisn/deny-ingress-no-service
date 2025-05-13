@@ -2,15 +2,17 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	kubewarden "github.com/kubewarden/policy-sdk-go"
 	kubewarden_protocol "github.com/kubewarden/policy-sdk-go/protocol"
 )
 
-const defaultEnforceServiceExists = true
+// ErrEmptySignatures 表示嵌套设置中的签名列表为空。
+var ErrEmptySignatures = errors.New("nested settings contains empty signatures")
 
-// Settings 定义了策略中的所有可配置项。
+const defaultEnforceServiceExists = true
 const defaultDisableCache = false
 
 // Settings 定义了策略中的所有可配置项。
@@ -26,33 +28,54 @@ type IncomingSettings struct {
 	Signatures []Settings `json:"signatures"`
 }
 
+// tryUnmarshalFlatSettings 尝试将设置解析为扁平结构。
+func tryUnmarshalFlatSettings(raw []byte) (*Settings, error) {
+	var settings Settings
+	if err := json.Unmarshal(raw, &settings); err != nil {
+		return nil, err
+	}
+	return &settings, nil
+}
+
+// tryUnmarshalNestedSettings 尝试将设置解析为嵌套结构。
+func tryUnmarshalNestedSettings(raw []byte) (*Settings, error) {
+	var nested IncomingSettings
+	if err := json.Unmarshal(raw, &nested); err != nil {
+		return nil, err
+	}
+	if len(nested.Signatures) == 0 {
+		return nil, ErrEmptySignatures
+	}
+	return &nested.Signatures[0], nil
+}
+
 // NewSettingsFromValidationReq 从 ValidationRequest 中提取设置，
 // 并在用户未提供时应用默认值。
 func NewSettingsFromValidationReq(validationReq *kubewarden_protocol.ValidationRequest) (Settings, error) {
-	// 1. 用默认值初始化
+	// 1. 使用默认值初始化
 	settings := Settings{
 		EnforceServiceExists: defaultEnforceServiceExists,
 		DisableCache:         defaultDisableCache,
 	}
 
-	// 2. 如果用户在 CRD 中提供了 settings，就合并
-	if len(validationReq.Settings) > 0 {
-		// Attempt to unmarshal into the flat Settings structure first (backward compatibility)
-		flatErr := json.Unmarshal(validationReq.Settings, &settings)
-		if flatErr != nil {
-			// If that fails, try unmarshalling into the nested IncomingSettings structure
-			var incomingSettings IncomingSettings
-			nestedErr := json.Unmarshal(validationReq.Settings, &incomingSettings)
-			if nestedErr != nil {
-				return Settings{}, fmt.Errorf("cannot parse settings JSON: %w", nestedErr)
-			}
-			// Extract settings from the nested structure
-			if len(incomingSettings.Signatures) > 0 {
-				settings.EnforceServiceExists = incomingSettings.Signatures[0].EnforceServiceExists
-				settings.DisableCache = incomingSettings.Signatures[0].DisableCache
-			}
-		}
+	// 如果没有自定义设置，直接返回默认值
+	if len(validationReq.Settings) == 0 {
+		return settings, nil
 	}
+
+	// 2. 尝试以扁平格式解析（向后兼容）
+	if flatSettings, err := tryUnmarshalFlatSettings(validationReq.Settings); err == nil && flatSettings != nil {
+		return *flatSettings, nil
+	}
+
+	// 3. 尝试以嵌套格式解析
+	if nestedSettings, err := tryUnmarshalNestedSettings(validationReq.Settings); err != nil {
+		return Settings{}, fmt.Errorf("cannot parse settings JSON: %w", err)
+	} else if nestedSettings != nil {
+		return *nestedSettings, nil
+	}
+
+	// 4. 如果两种格式都无法解析，返回默认值
 	return settings, nil
 }
 
