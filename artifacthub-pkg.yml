@@ -1,0 +1,61 @@
+# Kubewarden Artifacthub Package config
+#
+# Use this config to submit the policy to https://artifacthub.io.
+#
+# This config can be saved to its default location with:
+#   kwctl scaffold artifacthub > artifacthub-pkg.yml 
+version: 0.0.1
+name: deny-ingress-no-service
+displayName: Deny Ingress No Service
+createdAt: 2025-05-13T08:04:57.889806311Z
+description: A policy that ensures Ingress resources only reference existing Services in Kubernetes clusters
+license: Apache-2.0
+homeURL: https://github.com/vvlisn/deny-ingress-no-service
+containersImages:
+- name: policy
+  image: ghcr.io/vvlisn/policies/deny-ingress-no-service:v0.0.1
+keywords:
+- Ingress
+- service
+- security
+- network
+- kubewarden
+links:
+- name: policy
+  url: https://github.com/vvlisn/deny-ingress-no-service/releases/download/v0.0.1/policy.wasm
+- name: source
+  url: https://github.com/vvlisn/deny-ingress-no-service
+install: |
+  The policy can be obtained using [`kwctl`](https://github.com/kubewarden/kwctl):
+  ```console
+  kwctl pull ghcr.io/vvlisn/policies/deny-ingress-no-service:v0.0.1
+  ```
+  Then, generate the policy manifest and tune it to your liking. For example:
+  ```console
+  kwctl scaffold manifest -t ClusterAdmissionPolicy registry://ghcr.io/vvlisn/policies/deny-ingress-no-service:v0.0.1
+  ```
+maintainers:
+- name: Kubewarden
+  email: kubewarden@kubewarden.io
+provider:
+  name: kubewarden
+recommendations:
+- url: https://artifacthub.io/packages/helm/kubewarden/kubewarden-controller
+annotations:
+  kubewarden/contextAwareResources: |
+    - apiVersion: v1
+      kind: Namespace
+    - apiVersion: v1
+      kind: Service
+  kubewarden/mutation: 'false'
+  kubewarden/resources: Ingress
+  kubewarden/rules: |
+    - apiGroups:
+      - networking.k8s.io
+      apiVersions:
+      - v1
+      resources:
+      - ingresses
+      operations:
+      - CREATE
+      - UPDATE
