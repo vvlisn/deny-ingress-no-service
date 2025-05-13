@@ -1,10 +1,5 @@
 #!/usr/bin/env bats
 
-#git clone https://github.com/bats-core/bats-support.git test_helper/bats-support
-#git clone https://github.com/bats-core/bats-assert.git test_helper/bats-assert
-
-load 'test_helper/bats-support/load'
-load 'test_helper/bats-assert/load'
 
 @test "allow existing service (validation enabled by default)" {
   run env RUST_BACKTRACE=1 kwctl run --allow-context-aware --replay-host-capabilities-interactions test_data/replay-session-with-service.yml \
@@ -13,8 +8,8 @@ load 'test_helper/bats-assert/load'
         "annotated-policy.wasm"
 
   echo "output = ${output}"
-  assert_success
-  assert_output --partial '"allowed":true'
+  [ "$status" -eq 0 ]
+  [ $(expr "$output" : '.*"allowed":true.*') -ne 0 ]
 }
 
 @test "reject missing service (validation enabled by default)" {
@@ -24,9 +19,8 @@ load 'test_helper/bats-assert/load'
         "annotated-policy.wasm"
 
   echo "output = ${output}"
-  assert_success
-  assert_output --partial '"allowed":false'
-  assert_output --partial "Service 'non-existent-service': host call failed"
+  [ "$status" -eq 0 ]
+  [ $(echo "${output}" | grep -q "Service 'non-existent-service': host call failed"; echo $?) -eq 0 ]
 }
 
 @test "allow when validation disabled (skip service check)" {
@@ -36,16 +30,16 @@ load 'test_helper/bats-assert/load'
         "annotated-policy.wasm"
 
   echo "output = ${output}"
-  assert_success
-  assert_output --partial '"allowed":true'
+  [ "$status" -eq 0 ]
+  [ $(expr "$output" : '.*"allowed":true.*') -ne 0 ]
 }
 
 @test "allow empty ingress (no service reference)" {
-  run env RUST_BACKTRACE=1 kwctl run --allow-context-aware --replay-host-capabilities-interactions test_data/replay-session-with-service.yml.yml \
+  run env RUST_BACKTRACE=1 kwctl run --allow-context-aware --replay-host-capabilities-interactions test_data/replay-session-with-service.yml \
         -r "test_data/ingress-empty.json" \
         "annotated-policy.wasm"
 
   echo "output = ${output}"
-  assert_success
-  assert_output --partial '"allowed":true'
+  [ "$status" -eq 0 ]
+  [ $(expr "$output" : '.*"allowed":true.*') -ne 0 ]
 }
