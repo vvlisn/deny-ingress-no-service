@@ -26,7 +26,7 @@ annotations:
   io.artifacthub.displayName: Deny Ingress No Service
   io.artifacthub.resources: Ingress
   io.artifacthub.keywords: Ingress, service, security, network, kubewarden
-  io.kubewarden.policy.ociUrl: ghcr.io/vvlisn/deny-ingress-no-service
+  io.kubewarden.policy.ociUrl: ghcr.io/vvlisn/policies/deny-ingress-no-service
   # kubewarden specific:
   io.kubewarden.policy.title: deny-ingress-no-service
   io.kubewarden.policy.description: A policy that ensures Ingress resources only reference existing Services in Kubernetes clusters
