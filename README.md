@@ -8,19 +8,37 @@ This policy helps ensure that Kubernetes Ingress resources only reference existi
 
 This repository contains a Kubewarden policy written in Go. The policy validates Kubernetes Ingress resources by checking if the referenced backend Services exist in the specified namespace.
 
-The policy is configurable via runtime settings. By default, the policy will check for Service existence, but this can be disabled if needed.
+The policy is configurable via runtime settings. By default, the policy will check for Service existence and caching is enabled for host calls.
 
-You can configure the policy using this structure:
+You can configure the policy using a JSON structure. When using `kwctl run --settings-json`, the settings should be nested under a `signatures` key:
 
 ```json
 {
-  "enforce_service_exists": true
+  "signatures": [
+    {
+      "enforce_service_exists": true,
+      "disable_cache": false
+    }
+  ]
 }
 ```
 
-The `enforce_service_exists` setting controls whether the policy should validate Service existence:
-- `true` (default): Reject Ingress if any referenced Service does not exist
-- `false`: Skip Service existence validation, all Ingress resources will be accepted
+When deploying the policy to a Kubewarden cluster, the settings are typically provided directly without the `signatures` nesting:
+
+```json
+{
+  "enforce_service_exists": true,
+  "disable_cache": false
+}
+```
+
+The available settings are:
+- `enforce_service_exists` (boolean, default: `true`): Controls whether the policy should validate Service existence.
+  - `true`: Reject Ingress if any referenced Service does not exist.
+  - `false`: Skip Service existence validation, all Ingress resources will be accepted.
+- `disable_cache` (boolean, default: `false`): Controls whether the policy should disable caching for Host Capabilities `get_resource` calls.
+  - `true`: Caching is disabled.
+  - `false`: Caching is enabled.
 
 ## Code organization
 

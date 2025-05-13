@@ -20,3 +20,4 @@ bin/
 # ide
 .idea
 .vscode
+.clinerules
