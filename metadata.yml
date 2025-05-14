@@ -30,7 +30,7 @@ annotations:
   # kubewarden specific:
   io.kubewarden.policy.title: deny-ingress-no-service
   io.kubewarden.policy.description: A policy that ensures Ingress resources only reference existing Services in Kubernetes clusters
-  io.kubewarden.policy.author: "Kubewarden <kubewarden@kubewarden.io>"
+  io.kubewarden.policy.author: "vvlisn <vvlisn719@gmail.com>"
   io.kubewarden.policy.url: https://github.com/vvlisn/deny-ingress-no-service
   io.kubewarden.policy.source: https://github.com/vvlisn/deny-ingress-no-service
   io.kubewarden.policy.license: Apache-2.0
