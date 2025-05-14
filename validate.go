@@ -7,10 +7,10 @@ import (
 	"strings"
 
 	onelog "github.com/francoispqt/onelog"
-	networkingv1 "github.com/kubewarden/k8s-objects/api/networking/v1"
 	kubewarden "github.com/kubewarden/policy-sdk-go"
 	"github.com/kubewarden/policy-sdk-go/pkg/capabilities"
 	kubewarden_protocol "github.com/kubewarden/policy-sdk-go/protocol"
+	"github.com/tidwall/gjson"
 )
 
 const httpBadRequestStatusCode = 400
@@ -36,26 +36,37 @@ func validate(payload []byte) ([]byte, error) {
 			kubewarden.Code(httpBadRequestStatusCode))
 	}
 
-	// 反序列化出 Ingress 对象
-	ingress, err := getIngress(validationRequest.Request.Object)
-	if err != nil {
+	// 解析 Ingress 对象
+	ingressJSON := validationRequest.Request.Object
+	if len(ingressJSON) == 0 {
 		return kubewarden.RejectRequest(
-			kubewarden.Message(fmt.Sprintf("Cannot decode Ingress: %s", err)),
+			kubewarden.Message("empty ingress object"),
 			kubewarden.Code(httpBadRequestStatusCode))
 	}
 
+	// 使用 gjson 解析 metadata
+	metadata := gjson.GetBytes(ingressJSON, "metadata")
+	if !metadata.Exists() {
+		return kubewarden.RejectRequest(
+			kubewarden.Message("ingress metadata not found"),
+			kubewarden.Code(httpBadRequestStatusCode))
+	}
+
+	name := metadata.Get("name").String()
+	namespace := metadata.Get("namespace").String()
+
 	logger.DebugWithFields("validating ingress object", func(e onelog.Entry) {
-		e.String("name", ingress.Metadata.Name)
-		e.String("namespace", ingress.Metadata.Namespace)
+		e.String("name", name)
+		e.String("namespace", namespace)
 	})
 
-	// 如果 IsEnforcementEnabled 返回 false，说明不需要检查，直接通过.
+	// 如果不需要检查，直接通过
 	if !settings.IsEnforcementEnabled() {
 		return kubewarden.AcceptRequest()
 	}
 
 	// 提取所有后端 Service 名称
-	svcNames := extractServiceNames(ingress)
+	svcNames := extractServiceNamesWithGjson(ingressJSON)
 	if len(svcNames) == 0 {
 		// 没有服务需要验证，直接通过
 		return kubewarden.AcceptRequest()
@@ -63,7 +74,7 @@ func validate(payload []byte) ([]byte, error) {
 
 	// 逐个检查 Service 是否存在
 	for _, svc := range svcNames {
-		serviceOK, serviceErr := serviceExists(ingress, settings, svc)
+		serviceOK, serviceErr := serviceExistsWithGjson(namespace, settings, svc)
 		if serviceErr != nil {
 			return kubewarden.RejectRequest(
 				kubewarden.Message(fmt.Sprintf("Error checking Service '%s': %s", svc, serviceErr)),
@@ -73,7 +84,7 @@ func validate(payload []byte) ([]byte, error) {
 			return kubewarden.RejectRequest(
 				kubewarden.Message(fmt.Sprintf(
 					"Service '%s' does not exist in namespace '%s'",
-					svc, ingress.Metadata.Namespace)),
+					svc, namespace)),
 				kubewarden.NoCode)
 		}
 	}
@@ -82,45 +93,33 @@ func validate(payload []byte) ([]byte, error) {
 	return kubewarden.AcceptRequest()
 }
 
-// getIngress 从 RAW JSON 中解析出 Ingress 对象。
-func getIngress(rawJSON json.RawMessage) (*networkingv1.Ingress, error) {
-	if len(rawJSON) == 0 {
-		return nil, errors.New("empty ingress object")
-	}
-	ing := &networkingv1.Ingress{}
-	if err := json.Unmarshal(rawJSON, ing); err != nil {
-		return nil, err
-	}
-	return ing, nil
-}
-
-// extractServiceNames 从 Ingress Spec 中收集所有 backend.service.name 并去重。
-func extractServiceNames(ing *networkingv1.Ingress) []string {
-	if ing == nil || ing.Spec == nil {
-		return nil
-	}
-
-	// 使用 map 进行服务名去重
+// extractServiceNamesWithGjson 使用 gjson 从 Ingress JSON 中提取所有 Service 名称.
+func extractServiceNamesWithGjson(ingressJSON []byte) []string {
 	seen := make(map[string]struct{})
 
-	// 处理默认后端
-	if svcName := extractServiceNameFromBackend(ing.Spec.DefaultBackend); svcName != "" {
-		seen[svcName] = struct{}{}
+	// 获取默认后端服务名称
+	defaultBackend := gjson.GetBytes(ingressJSON, "spec.defaultBackend.service.name")
+	if defaultBackend.Exists() && defaultBackend.String() != "" {
+		seen[defaultBackend.String()] = struct{}{}
 	}
 
-	// 处理所有路径规则
-	for _, rule := range ing.Spec.Rules {
-		if rule.HTTP == nil {
-			continue
-		}
-		for _, path := range rule.HTTP.Paths {
-			if svcName := extractServiceNameFromBackend(path.Backend); svcName != "" {
-				seen[svcName] = struct{}{}
+	// 获取所有路径规则中的服务名称
+	spec := gjson.GetBytes(ingressJSON, "spec")
+	if spec.Exists() {
+		spec.Get("rules").ForEach(func(_, rule gjson.Result) bool {
+			if http := rule.Get("http"); http.Exists() {
+				http.Get("paths").ForEach(func(_, path gjson.Result) bool {
+					if svcName := path.Get("backend.service.name"); svcName.Exists() && svcName.String() != "" {
+						seen[svcName.String()] = struct{}{}
+					}
+					return true
+				})
 			}
-		}
+			return true
+		})
 	}
 
-	// 将去重后的服务名转换为切片
+	// 转换为切片
 	names := make([]string, 0, len(seen))
 	for name := range seen {
 		names = append(names, name)
@@ -128,22 +127,10 @@ func extractServiceNames(ing *networkingv1.Ingress) []string {
 	return names
 }
 
-// extractServiceNameFromBackend 从后端配置中提取服务名称。
-func extractServiceNameFromBackend(backend *networkingv1.IngressBackend) string {
-	if backend == nil || backend.Service == nil || backend.Service.Name == nil {
-		return ""
-	}
-	if *backend.Service.Name == "" {
-		return ""
-	}
-	return *backend.Service.Name
-}
-
-// serviceExists 调用 Kubewarden Capabilities 检查 Service 是否存在。
-func serviceExists(ingress *networkingv1.Ingress, settings Settings, serviceName string) (bool, error) {
-	// 参数验证
-	if ingress == nil || ingress.Metadata == nil {
-		return false, errors.New("ingress object or metadata cannot be nil")
+// serviceExistsWithGjson 使用 gjson 检查 Service 是否存在.
+func serviceExistsWithGjson(namespace string, settings Settings, serviceName string) (bool, error) {
+	if namespace == "" {
+		return false, errors.New("namespace cannot be empty")
 	}
 	if serviceName == "" {
 		return false, errors.New("service name cannot be empty")
@@ -153,7 +140,7 @@ func serviceExists(ingress *networkingv1.Ingress, settings Settings, serviceName
 	req := map[string]interface{}{
 		"api_version":   "v1",
 		"kind":          "Service",
-		"namespace":     ingress.Metadata.Namespace,
+		"namespace":     namespace,
 		"name":          serviceName,
 		"disable_cache": settings.DisableCache,
 	}
